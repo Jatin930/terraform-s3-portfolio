@@ -15,6 +15,21 @@ terraform {
                                   # the ~> means "compatible with" — avoids breaking changes
     }
   }
+
+  # backend = where Terraform stores its state file.
+  # Instead of a local terraform.tfstate file, state is now stored remotely in AWS:
+  #   - S3 bucket: stores the actual state file (versioned + encrypted)
+  #   - DynamoDB:  locks state during apply so two runs can't corrupt it simultaneously
+  #
+  # This is required for CI/CD (GitHub Actions has no access to your local machine)
+  # and is standard practice on any real team or production project.
+  backend "s3" {
+    bucket         = "myterraformproject-jt-tfstate"  # the S3 bucket we created in state.tf
+    key            = "terraform.tfstate"               # the filename/path inside the bucket
+    region         = "us-east-1"
+    dynamodb_table = "myterraformproject-jt-tflock"    # the DynamoDB table for locking
+    encrypt        = true                              # encrypt state at rest
+  }
 }
 
 

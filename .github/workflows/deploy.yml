@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------
+# .github/workflows/deploy.yml
+#
+# This is a GitHub Actions CI/CD pipeline.
+# GitHub Actions automatically runs this file when you push code
+# or open a pull request — no manual terraform apply needed.
+#
+# HOW IT WORKS:
+#   Pull Request → runs plan only (shows what WOULD change, no real changes)
+#   Push to main → runs plan + apply (actually deploys the changes)
+#
+# This means:
+#   - Every PR shows a preview of infrastructure changes for code review
+#   - Merging to main automatically deploys the updated infrastructure
+#
+# SETUP REQUIRED:
+# You must add two secrets to your GitHub repo before this will work:
+#   1. Go to your repo → Settings → Secrets and variables → Actions
+#   2. Click "New repository secret" and add:
+#      - AWS_ACCESS_KEY_ID     (your AWS access key)
+#      - AWS_SECRET_ACCESS_KEY (your AWS secret key)
+# ---------------------------------------------------------------
+
+name: Terraform Deploy
+
+# Trigger this workflow on:
+#   - Any push to the main branch (deploy)
+#   - Any pull request targeting main (plan only)
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# AWS credentials are loaded from GitHub Secrets (never hardcode these)
+# These are available to all steps in this workflow
+env:
+  AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION:    us-east-1
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest  # run on a fresh Ubuntu virtual machine provided by GitHub
+
+    steps:
+
+      # Step 1: Check out the repository code onto the runner machine
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Terraform on the runner
+      # hashicorp/setup-terraform is an official action from HashiCorp
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.0"
+
+      # Step 3: terraform init — downloads provider plugins and connects to S3 remote state
+      # This is always the first Terraform command you run
+      - name: Terraform Init
+        run: terraform init
+
+      # Step 4: Check that all .tf files are properly formatted
+      # terraform fmt -check exits with an error if any file needs reformatting
+      # This enforces consistent code style across the team
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # Step 5: Validate the configuration — checks for syntax errors and
+      # invalid references without connecting to AWS
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Step 6: Show what Terraform WOULD do if applied
+      # On a PR, this output is visible in the GitHub Actions log
+      # On push to main, this still runs before apply as a final check
+      - name: Terraform Plan
+        run: terraform plan -no-color
+
+      # Step 7: Actually apply the changes — but ONLY on push to main
+      # Pull requests only run up to plan (step 6) and never apply
+      # This prevents accidental deploys from feature branches
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve -no-color

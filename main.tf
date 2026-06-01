@@ -11,88 +11,67 @@
 # "mybucket" is what WE call it inside Terraform (used to reference it later).
 # The actual name of the bucket in AWS comes from our variable file.
 resource "aws_s3_bucket" "mybucket" {
-  bucket = var.bucket_name  # pulls the name from variables.tf
+  bucket = var.bucket_name
 }
 
+
+# Reset the bucket ACL to private before changing ownership controls.
+# The bucket previously had a public-read ACL. AWS won't allow changing
+# ownership to BucketOwnerEnforced while any ACL grant still exists.
+# Setting this to "private" first clears those grants cleanly.
+resource "aws_s3_bucket_acl" "reset" {
+  bucket = aws_s3_bucket.mybucket.id
+  acl    = "private"
+}
 
 # Set ownership controls on the bucket.
-# "BucketOwnerPreferred" means: the bucket owner will own all objects
-# uploaded to this bucket, BUT ACLs (Access Control Lists) are still allowed.
-# We need this set before we can apply a public-read ACL below.
+# "BucketOwnerEnforced" disables ACLs entirely — the bucket owner owns
+# all objects automatically. We no longer need ACLs since the bucket is
+# private and only accessible through CloudFront via OAC (below).
 resource "aws_s3_bucket_ownership_controls" "mybucket" {
-  bucket = aws_s3_bucket.mybucket.id  # reference the bucket we created above
+  bucket = aws_s3_bucket.mybucket.id
 
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = "BucketOwnerEnforced"
   }
+
+  depends_on = [aws_s3_bucket_acl.reset]
 }
 
 
-# By default, AWS blocks all public access to S3 buckets for safety.
-# We're turning ALL four of those blocks OFF so our website can be public.
-# Setting each one to false means: "do NOT block this type of public access".
+# Block ALL public access to the bucket — it is now fully private.
+# Previously this was all false (public). Now it's all true (private).
+# Visitors reach our site through CloudFront only, not S3 directly.
+# This is more secure because:
+#   - Nobody can bypass CloudFront to hit S3 directly
+#   - Our security headers and HTTPS enforcement can't be skipped
 resource "aws_s3_bucket_public_access_block" "mybucket" {
   bucket = aws_s3_bucket.mybucket.id
 
-  block_public_acls       = false  # allow public ACLs to be set
-  block_public_policy     = false  # allow public bucket policies
-  ignore_public_acls      = false  # do not ignore public ACLs
-  restrict_public_buckets = false  # do not restrict public bucket access
-}
+  block_public_acls       = true  # block any attempt to make objects public via ACL
+  block_public_policy     = true  # block any public bucket policies
+  ignore_public_acls      = true  # ignore any existing public ACLs
+  restrict_public_buckets = true  # restrict all public access to the bucket
 
-
-# Apply a public-read ACL to the bucket.
-# "public-read" means anyone on the internet can read (view) the contents.
-# This is what makes our website files accessible in a browser.
-#
-# depends_on tells Terraform: wait until ownership controls AND
-# public access block are created before trying to set the ACL.
-# Without this order, AWS would reject the request.
-resource "aws_s3_bucket_acl" "mybucket" {
-  bucket = aws_s3_bucket.mybucket.id
-  acl    = "public-read"
-
-  depends_on = [
-    aws_s3_bucket_ownership_controls.mybucket,
-    aws_s3_bucket_public_access_block.mybucket
-  ]
-}
-
-
-# Enable static website hosting on the bucket.
-# This turns our plain S3 bucket into a web server that can serve HTML files.
-# - index_document: the file AWS serves when someone visits the root URL (/)
-# - error_document: the file AWS serves when a page is not found (404)
-resource "aws_s3_bucket_website_configuration" "mybucket" {
-  bucket = aws_s3_bucket.mybucket.id
-
-  index_document {
-    suffix = "index.html"  # serve this file at the root of the site
-  }
-
-  error_document {
-    key = "error.html"  # serve this file when a page doesn't exist
-  }
+  depends_on = [aws_s3_bucket_ownership_controls.mybucket]
 }
 
 
 # Upload index.html to the S3 bucket.
 # - key: the filename/path it will have inside the bucket
 # - source: the local file on your machine to upload
-# - acl: public-read so anyone can view it in their browser
 # - content_type: tells the browser this is an HTML file (not a download)
+# - etag: a hash of the file — if the file changes, etag changes,
+#   and Terraform knows to re-upload it automatically
+# No ACL needed here — the bucket is private, CloudFront handles access.
 resource "aws_s3_object" "index" {
   bucket       = aws_s3_bucket.mybucket.id
   key          = "index.html"
   source       = "index.html"
-  acl          = "public-read"
   content_type = "text/html"
-  etag         = filemd5("index.html")  # detects file content changes so Terraform re-uploads when the file is edited
+  etag         = filemd5("index.html")
 
-  depends_on = [
-    aws_s3_bucket_ownership_controls.mybucket,
-    aws_s3_bucket_public_access_block.mybucket
-  ]
+  depends_on = [aws_s3_bucket_public_access_block.mybucket]
 }
 
 
@@ -102,14 +81,132 @@ resource "aws_s3_object" "error" {
   bucket       = aws_s3_bucket.mybucket.id
   key          = "error.html"
   source       = "error.html"
-  acl          = "public-read"
   content_type = "text/html"
-  etag         = filemd5("error.html")  # detects file content changes so Terraform re-uploads when the file is edited
+  etag         = filemd5("error.html")
 
-  depends_on = [
-    aws_s3_bucket_ownership_controls.mybucket,
-    aws_s3_bucket_public_access_block.mybucket
-  ]
+  depends_on = [aws_s3_bucket_public_access_block.mybucket]
+}
+
+
+# ---------------------------------------------------------------
+# Origin Access Control (OAC)
+#
+# OAC is how CloudFront proves its identity to S3 when fetching files.
+# Without OAC, S3 wouldn't know whether a request is coming from
+# our CloudFront distribution or from some random person trying to
+# access the bucket directly.
+#
+# How it works:
+#   1. CloudFront signs every request to S3 using AWS Signature v4
+#   2. S3 checks the signature against our bucket policy (below)
+#   3. If the signature matches OUR CloudFront distribution → allow
+#   4. Everything else → deny
+#
+# signing_behavior = "always" means every request is signed, no exceptions.
+# ---------------------------------------------------------------
+resource "aws_cloudfront_origin_access_control" "oac" {
+  name                              = "${var.bucket_name}-oac"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"  # AWS Signature Version 4 — the current standard
+}
+
+
+# ---------------------------------------------------------------
+# S3 Bucket Policy — allow only our CloudFront distribution to read files
+#
+# A bucket policy is a JSON document that defines who can access the bucket.
+# This policy says:
+#   ALLOW: the CloudFront service to call s3:GetObject (read files)
+#   BUT ONLY IF: the request comes from OUR specific CloudFront distribution
+#                (matched by its ARN via the Condition block)
+#
+# This means even if someone creates their own CloudFront distribution
+# and points it at our bucket, it still gets denied — only our
+# distribution's ARN matches.
+# ---------------------------------------------------------------
+resource "aws_s3_bucket_policy" "allow_cloudfront" {
+  bucket = aws_s3_bucket.mybucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowCloudFrontServicePrincipal"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudfront.amazonaws.com"  # the CloudFront service identity
+        }
+        Action   = "s3:GetObject"                              # read-only access
+        Resource = "${aws_s3_bucket.mybucket.arn}/*"           # all objects in our bucket
+        Condition = {
+          StringEquals = {
+            # only allow requests from OUR specific CloudFront distribution
+            "AWS:SourceArn" = aws_cloudfront_distribution.cdn.arn
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.mybucket]
+}
+
+
+# ---------------------------------------------------------------
+# CloudFront Response Headers Policy — Security Headers
+#
+# Security headers are HTTP response headers that tell the browser
+# how to behave securely when displaying your site. CloudFront injects
+# these into every response automatically.
+#
+# Each header explained:
+#   HSTS (Strict-Transport-Security): tells browsers to ALWAYS use HTTPS
+#     for this site for the next year — even if the user types http://
+#   X-Content-Type-Options: prevents browsers from guessing the file type
+#     (e.g. treating a text file as executable code)
+#   X-Frame-Options: prevents your site from being embedded in an iframe
+#     on another site (protects against clickjacking attacks)
+#   X-XSS-Protection: enables the browser's built-in XSS filter
+#   Referrer-Policy: controls how much URL info is sent when clicking links
+#     "strict-origin-when-cross-origin" = safe default
+# ---------------------------------------------------------------
+resource "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "${var.bucket_name}-security-headers"
+
+  security_headers_config {
+
+    # Force HTTPS for 1 year (31536000 seconds), including subdomains
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      override                   = true  # override means apply even if origin already sets this header
+    }
+
+    # Block MIME-type sniffing
+    content_type_options {
+      override = true
+    }
+
+    # Block iframe embedding (anti-clickjacking)
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+
+    # Enable browser XSS filter
+    xss_protection {
+      mode_block = true  # block the page entirely if XSS is detected
+      protection = true
+      override   = true
+    }
+
+    # Control referrer info sent on navigation
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = true
+    }
+  }
 }
 
 
@@ -117,88 +214,72 @@ resource "aws_s3_object" "error" {
 # CloudFront Distribution
 #
 # CloudFront is AWS's CDN (Content Delivery Network).
-# Instead of visitors hitting our S3 bucket directly in us-east-1,
-# CloudFront caches our files at 400+ edge locations worldwide.
-#
-# Key benefits over plain S3 hosting:
-#   1. HTTPS — S3 website hosting only supports HTTP. CloudFront
-#      provides a free SSL certificate automatically.
-#   2. Speed — content is served from the nearest edge location
-#      to the visitor, not always from Virginia.
-#   3. HTTP → HTTPS redirect — any http:// request is automatically
-#      upgraded to https://.
-#   4. Custom error pages — we can map 404 errors to our error.html.
+# It sits in front of S3 and serves our site from 400+ edge locations
+# worldwide, adding HTTPS, caching, security headers, and OAC.
 # ---------------------------------------------------------------
 resource "aws_cloudfront_distribution" "cdn" {
 
-  # origin = where CloudFront fetches your content FROM.
-  # We point it at the S3 website endpoint (not the bucket directly)
-  # so it respects our index/error document configuration.
+  # origin = where CloudFront fetches content FROM.
+  # We now use the S3 bucket's regional domain name (REST API endpoint)
+  # instead of the website endpoint, because OAC requires the REST endpoint.
   origin {
-    domain_name = aws_s3_bucket_website_configuration.mybucket.website_endpoint
-    origin_id   = "S3-${aws_s3_bucket.mybucket.id}"  # a unique label for this origin, used below
-
-    # custom_origin_config is needed when using an S3 website endpoint
-    # (as opposed to a raw S3 bucket). The website endpoint only speaks HTTP,
-    # so we set origin_protocol_policy to "http-only" here.
-    # CloudFront still serves HTTPS to visitors — it just fetches from S3 over HTTP internally.
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
+    domain_name              = aws_s3_bucket.mybucket.bucket_regional_domain_name
+    origin_id                = "S3-${aws_s3_bucket.mybucket.id}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id  # attach OAC
   }
 
-  enabled             = true           # the distribution is active and serving traffic
-  default_root_object = "index.html"   # serve index.html when someone visits the root URL /
+  enabled             = true
+  default_root_object = "index.html"  # serve index.html when someone visits /
 
-  # default_cache_behavior defines how CloudFront handles requests and caching.
+  # default_cache_behavior defines how CloudFront handles and caches requests.
   default_cache_behavior {
-    allowed_methods  = ["GET", "HEAD"]          # only allow read requests (this is a static site)
-    cached_methods   = ["GET", "HEAD"]          # cache responses to GET and HEAD requests
-    target_origin_id = "S3-${aws_s3_bucket.mybucket.id}"  # which origin to use (matches origin_id above)
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    target_origin_id           = "S3-${aws_s3_bucket.mybucket.id}"
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id  # attach security headers
 
-    # forwarded_values controls what request info CloudFront passes to the origin.
-    # For a static site we don't need query strings or cookies.
     forwarded_values {
-      query_string = false
+      query_string = false  # don't pass query strings to S3 (not needed for static sites)
       cookies {
-        forward = "none"
+        forward = "none"   # don't forward cookies (not needed for static sites)
       }
     }
 
-    # redirect-to-https means: if a visitor uses http://, CloudFront
-    # automatically sends them to https:// instead.
+    # Redirect any http:// requests to https:// automatically
     viewer_protocol_policy = "redirect-to-https"
 
-    # TTL = Time To Live — how long CloudFront caches files before checking S3 for updates.
-    # min: 0 seconds, default: 1 hour (3600s), max: 24 hours (86400s)
-    min_ttl     = 0
-    default_ttl = 3600
-    max_ttl     = 86400
+    # TTL = how long CloudFront caches files before checking S3 for updates
+    min_ttl     = 0      # minimum cache time
+    default_ttl = 3600   # default: 1 hour
+    max_ttl     = 86400  # maximum: 24 hours
   }
 
-  # When a visitor hits a URL that doesn't exist, S3 returns a 404.
-  # This maps that 404 to our custom error.html page.
+  # When S3 denies a request (403) because the file doesn't exist,
+  # serve our custom error.html with a 404 status code.
+  # S3 returns 403 instead of 404 for missing files when the bucket is private
+  # (it won't reveal whether a file exists or not for security reasons).
+  custom_error_response {
+    error_code         = 403
+    response_code      = 404
+    response_page_path = "/error.html"
+  }
+
+  # Also handle real 404s from S3
   custom_error_response {
     error_code         = 404
     response_code      = 404
     response_page_path = "/error.html"
   }
 
-  # geo_restriction lets you block or allowlist specific countries.
-  # "none" means the site is accessible from everywhere in the world.
+  # No geographic restrictions — site is accessible worldwide
   restrictions {
     geo_restriction {
       restriction_type = "none"
     }
   }
 
-  # viewer_certificate controls the SSL certificate shown to visitors.
-  # cloudfront_default_certificate = true means we use the free
-  # AWS-provided certificate with the *.cloudfront.net domain.
-  # (To use your own domain + cert, you'd use acm_certificate_arn instead.)
+  # Use the free AWS default CloudFront SSL certificate (*.cloudfront.net)
+  # To use a custom domain, you'd replace this with an ACM certificate ARN
   viewer_certificate {
     cloudfront_default_certificate = true
   }
