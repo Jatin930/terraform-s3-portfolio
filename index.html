@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jatin Talwar // Portfolio</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --green: #00ff41;
+      --green-dim: #00ff4188;
+      --green-faint: #00ff4122;
+      --green-muted: #00cc33;
+      --text: #aaffcc;
+      --bg: rgba(0,0,0,0.82);
+    }
+
+    body {
+      background: #000;
+      color: var(--green);
+      font-family: 'Courier New', Courier, monospace;
+      overflow-x: hidden;
+      padding-bottom: 80px;
+    }
+
+    canvas#matrix {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      opacity: 0.15;
+    }
+
+    /* Scanlines */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+      pointer-events: none;
+      z-index: 998;
+    }
+
+    /* ── Boot screen ── */
+    #boot {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 60px;
+      font-size: 13px;
+      color: var(--green);
+      transition: opacity 0.6s;
+    }
+
+    #boot.fade-out { opacity: 0; pointer-events: none; }
+    #boot-log { line-height: 2; }
+    #boot-log .ok   { color: #00ff41; }
+    #boot-log .warn { color: #febc2e; }
+    #boot-log .info { color: #00ff4166; }
+
+    /* ── Layout ── */
+    .overlay {
+      position: relative;
+      z-index: 1;
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 40px 20px 40px;
+    }
+
+    /* ── Terminal card ── */
+    .terminal {
+      background: var(--bg);
+      border: 1px solid var(--green);
+      border-radius: 6px;
+      box-shadow: 0 0 28px rgba(0,255,65,0.12), 0 0 56px rgba(0,255,65,0.04);
+      margin-bottom: 24px;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+
+    .terminal.visible { opacity: 1; transform: translateY(0); }
+
+    .terminal-bar {
+      background: #0a0a0a;
+      border-bottom: 1px solid #00ff4133;
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot.r { background: #ff5f57; }
+    .dot.y { background: #febc2e; }
+    .dot.g { background: #28c840; }
+
+    .bar-title {
+      margin-left: auto;
+      font-size: 11px;
+      color: #00ff4155;
+      letter-spacing: 1px;
+    }
+
+    .terminal-body { padding: 26px 30px; }
+
+    .section-label {
+      font-size: 10px;
+      color: #00ff4155;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+      border-bottom: 1px solid #00ff4118;
+      padding-bottom: 8px;
+    }
+    .section-label::before { content: '// '; color: #00ff4133; }
+
+    /* ── Hero ── */
+    .prompt-line { color: #00ff4177; font-size: 12px; margin-bottom: 6px; }
+    .prompt-line span { color: var(--green); }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      color: var(--green);
+      letter-spacing: 3px;
+      text-shadow: 0 0 18px #00ff4166;
+      line-height: 1.1;
+    }
+
+    .tagline { margin-top: 10px; font-size: 14px; color: var(--green-muted); letter-spacing: 1px; }
+
+    .meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
+    .meta-item { font-size: 11px; color: #00ff4155; }
+    .meta-item::before { content: '> '; color: #00ff4133; }
+
+    .cursor {
+      display: inline-block;
+      width: 9px; height: 1em;
+      background: var(--green);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── About ── */
+    .about-text { font-size: 13px; color: var(--text); line-height: 1.9; }
+    .about-text .cmd { color: var(--green); }
+
+    /* ── Skills bars ── */
+    .skill-category-title {
+      font-size: 11px;
+      color: #00ff4177;
+      letter-spacing: 2px;
+      margin: 18px 0 10px;
+    }
+    .skill-category-title::before { content: '$ '; color: #00ff4144; }
+    .skill-category-title:first-child { margin-top: 0; }
+
+    .skill-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 0;
+      border-bottom: 1px solid #00ff4108;
+      font-size: 12px;
+    }
+    .skill-row:last-of-type { border-bottom: none; }
+
+    .skill-name { color: var(--text); }
+
+    .skill-yr {
+      color: var(--green);
+      border: 1px solid #00ff4133;
+      padding: 2px 10px;
+      font-size: 11px;
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    /* ── ps aux ── */
+    .ps-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .ps-table th {
+      color: #00ff4166;
+      font-weight: normal;
+      text-align: left;
+      padding: 4px 10px 10px 0;
+      border-bottom: 1px solid #00ff4122;
+      letter-spacing: 1px;
+      font-size: 11px;
+    }
+    .ps-table td { color: var(--text); padding: 8px 10px 8px 0; border-bottom: 1px solid #00ff410a; }
+    .ps-table tr:last-child td { border-bottom: none; }
+    .ps-table td.pid { color: #00ff4166; }
+    .ps-table td.cmd-col { color: var(--green); }
+
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      font-size: 10px;
+      letter-spacing: 1px;
+    }
+    .status-running  { color: #00ff41; border: 1px solid #00ff4144; }
+    .status-progress { color: #febc2e; border: 1px solid #febc2e44; }
+    .status-done     { color: #00ff4166; border: 1px solid #00ff4122; }
+
+    /* ── Experience ── */
+    .exp-item { margin-bottom: 24px; }
+    .exp-item:last-child { margin-bottom: 0; }
+
+    .exp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .exp-title   { font-size: 14px; color: var(--green); font-weight: bold; }
+    .exp-company { font-size: 12px; color: var(--green-muted); }
+    .exp-date    { font-size: 11px; color: #00ff4155; white-space: nowrap; }
+
+    .exp-bullets { list-style: none; padding-left: 14px; border-left: 2px solid #00ff4122; }
+    .exp-bullets li {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.75;
+      margin-bottom: 5px;
+      padding-left: 8px;
+      position: relative;
+    }
+    .exp-bullets li::before { content: '›'; color: var(--green); position: absolute; left: -5px; }
+
+    /* ── Projects ── */
+    .project-card {
+      border: 1px solid #00ff4133;
+      padding: 18px;
+      margin-bottom: 14px;
+      transition: all 0.2s;
+    }
+    .project-card:last-child { margin-bottom: 0; }
+    .project-card:hover { border-color: var(--green); box-shadow: 0 0 14px #00ff4118; background: #00ff410a; }
+
+    .project-name { font-size: 13px; color: var(--green); font-weight: bold; margin-bottom: 5px; }
+    .project-name::before { content: '['; color: #00ff4155; }
+    .project-name::after  { content: ']'; color: #00ff4155; }
+
+    .project-stack { font-size: 11px; color: #00ff4166; margin-bottom: 10px; }
+
+    .project-bullets { list-style: none; padding-left: 10px; border-left: 2px solid #00ff4118; }
+    .project-bullets li {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.65;
+      margin-bottom: 5px;
+      padding-left: 8px;
+      position: relative;
+    }
+    .project-bullets li::before { content: '›'; color: #00ff4166; position: absolute; left: -4px; }
+
+    /* ── Education ── */
+    .edu-item { margin-bottom: 16px; }
+    .edu-item:last-child { margin-bottom: 0; }
+    .edu-school  { font-size: 13px; color: var(--green); font-weight: bold; }
+    .edu-degree  { font-size: 12px; color: var(--text); margin-top: 3px; }
+    .edu-date    { font-size: 11px; color: #00ff4155; margin-top: 2px; }
+    .edu-note    { font-size: 11px; color: #00cc3388; margin-top: 4px; }
+
+    /* ── Certs ── */
+    .cert-list { list-style: none; }
+    .cert-list li {
+      font-size: 12px;
+      color: var(--text);
+      padding: 8px 0;
+      border-bottom: 1px solid #00ff4110;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .cert-list li:last-child { border-bottom: none; }
+    .cert-list li::before { content: '✓ '; color: var(--green); }
+    .cert-year { font-size: 11px; color: #00ff4155; }
+
+    /* ── Contact ── */
+    .contact-list { list-style: none; }
+    .contact-list li {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .contact-list li::before { content: '$'; color: var(--green); font-weight: bold; }
+    .contact-list a { color: var(--green); text-decoration: none; border-bottom: 1px dashed #00ff4144; transition: border-color 0.2s; }
+    .contact-list a:hover { border-color: var(--green); }
+
+    /* ── Footer ── */
+    .footer { text-align: center; font-size: 11px; color: #00ff4133; letter-spacing: 2px; margin-top: 8px; }
+    .terminal-hint { text-align: center; font-size: 11px; color: #00ff4155; margin-bottom: 16px; letter-spacing: 1px; }
+    .terminal-hint kbd {
+      border: 1px solid #00ff4144;
+      padding: 1px 6px;
+      font-family: inherit;
+      font-size: 11px;
+      color: var(--green);
+    }
+
+    /* ── Interactive terminal drawer ── */
+    #term-drawer {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(0,0,0,0.97);
+      border-top: 1px solid var(--green);
+      box-shadow: 0 -4px 30px #00ff4122;
+      transition: height 0.3s ease;
+      height: 42px;
+      overflow: hidden;
+      font-family: 'Courier New', Courier, monospace;
+    }
+
+    #term-drawer.open { height: 280px; }
+
+    #term-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      height: 42px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      color: #00ff4188;
+      border: none;
+      background: none;
+      width: 100%;
+      font-family: inherit;
+    }
+
+    #term-toggle:hover { color: var(--green); }
+    #term-toggle .arrow { transition: transform 0.3s; font-size: 10px; }
+    #term-drawer.open #term-toggle .arrow { transform: rotate(180deg); }
+
+    #term-output {
+      height: 192px;
+      overflow-y: auto;
+      padding: 6px 16px 6px;
+      font-size: 12px;
+      line-height: 1.7;
+      scroll-behavior: smooth;
+    }
+
+    #term-output::-webkit-scrollbar { width: 4px; }
+    #term-output::-webkit-scrollbar-track { background: transparent; }
+    #term-output::-webkit-scrollbar-thumb { background: #00ff4133; }
+
+    .t-out-line { color: var(--text); }
+    .t-out-line.cmd-echo { color: #00ff4177; }
+    .t-out-line.t-green  { color: var(--green); }
+    .t-out-line.t-warn   { color: #febc2e; }
+    .t-out-line.t-dim    { color: #00ff4155; }
+    .t-out-line.t-err    { color: #ff4444; }
+
+    #term-input-row {
+      display: flex;
+      align-items: center;
+      padding: 4px 16px 10px;
+      gap: 8px;
+      border-top: 1px solid #00ff4118;
+    }
+
+    #term-ps { font-size: 12px; color: #00ff4177; white-space: nowrap; }
+    #term-ps span { color: var(--green); }
+
+    #term-input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--green);
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      caret-color: var(--green);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Boot screen -->
+<div id="boot">
+  <div id="boot-log"></div>
+</div>
+
+<canvas id="matrix"></canvas>
+
+<div class="overlay">
+
+  <!-- HERO -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">jatin@portfolio ~ bash</span>
+    </div>
+    <div class="terminal-body">
+      <div class="prompt-line">guest@jt-portfolio:<span>~</span>$ whoami</div>
+      <h1>JATIN TALWAR</h1>
+      <div class="tagline">DevOps Engineer &nbsp;|&nbsp; Bank of America &nbsp;|&nbsp; New York, NY<span class="cursor"></span></div>
+      <div class="meta">
+        <span class="meta-item">CI/CD &amp; Automation</span>
+        <span class="meta-item">Containers &amp; Cloud</span>
+        <span class="meta-item">Security &amp; Monitoring</span>
+        <span class="meta-item">AWS · Kubernetes · Terraform</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ABOUT -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">about.sh</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">About</div>
+      <p class="about-text">
+        <span class="cmd">$</span> DevOps Engineer at Bank of America with 3+ years of experience building
+        and automating enterprise-grade infrastructure. Specialized in CI/CD pipelines, container
+        orchestration with Kubernetes and OpenShift, secrets management with HashiCorp Vault, and
+        cloud deployments on AWS. Passionate about security, observability, and eliminating manual
+        toil through automation. Currently pursuing a BBA in Computer Information Systems at Baruch College.
+      </p>
+    </div>
+  </div>
+
+  <!-- SKILLS -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">skills.sh</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Skills</div>
+
+      <div class="skill-category-title">CI/CD &amp; Automation</div>
+      <div class="skill-row"><span class="skill-name">Jenkins</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">Ansible</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">ArgoCD</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">Git / Bitbucket</span><span class="skill-yr">5 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">XL Release</span><span class="skill-yr">3 YRS</span></div>
+
+      <div class="skill-category-title">Containers &amp; Cloud</div>
+      <div class="skill-row"><span class="skill-name">Docker</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">Kubernetes / EKS</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">Red Hat OpenShift</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">AWS (EC2, EKS)</span><span class="skill-yr">1 YR</span></div>
+      <div class="skill-row"><span class="skill-name">Terraform</span><span class="skill-yr">1 YR</span></div>
+      <div class="skill-row"><span class="skill-name">Helm</span><span class="skill-yr">3 YRS</span></div>
+
+      <div class="skill-category-title">Security &amp; Monitoring</div>
+      <div class="skill-row"><span class="skill-name">HashiCorp Vault</span><span class="skill-yr">1 YR</span></div>
+      <div class="skill-row"><span class="skill-name">SonarQube / Trivy</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">Prometheus / Grafana</span><span class="skill-yr">1 YR</span></div>
+      <div class="skill-row"><span class="skill-name">Splunk / Dynatrace</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">OWASP</span><span class="skill-yr">3 YRS</span></div>
+
+      <div class="skill-category-title">Languages &amp; Databases</div>
+      <div class="skill-row"><span class="skill-name">Python</span><span class="skill-yr">1 YR</span></div>
+      <div class="skill-row"><span class="skill-name">Bash / Shell</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">SQL / MySQL</span><span class="skill-yr">3 YRS</span></div>
+      <div class="skill-row"><span class="skill-name">MongoDB</span><span class="skill-yr">3 YRS</span></div>
+    </div>
+  </div>
+
+  <!-- PS AUX — CURRENTLY RUNNING -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">ps aux | grep jatin</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Currently Running</div>
+      <table class="ps-table">
+        <thead>
+          <tr>
+            <th>PID</th>
+            <th>USER</th>
+            <th>COMMAND</th>
+            <th>MEM</th>
+            <th>STATUS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="pid">001</td>
+            <td>jatin</td>
+            <td class="cmd-col">devops-engineer @ bank-of-america</td>
+            <td>3yr+</td>
+            <td><span class="status-badge status-running">RUNNING</span></td>
+          </tr>
+          <tr>
+            <td class="pid">002</td>
+            <td>jatin</td>
+            <td class="cmd-col">bba-cis @ baruch-college</td>
+            <td>4yr</td>
+            <td><span class="status-badge status-running">RUNNING</span></td>
+          </tr>
+          <tr>
+            <td class="pid">003</td>
+            <td>jatin</td>
+            <td class="cmd-col">cka-certification --prep</td>
+            <td>active</td>
+            <td><span class="status-badge status-progress">IN PROGRESS</span></td>
+          </tr>
+          <tr>
+            <td class="pid">004</td>
+            <td>jatin</td>
+            <td class="cmd-col">terraform-s3-portfolio --deploy</td>
+            <td>live</td>
+            <td><span class="status-badge status-done">COMPLETE</span></td>
+          </tr>
+          <tr>
+            <td class="pid">005</td>
+            <td>jatin</td>
+            <td class="cmd-col">ibm-cloud-computing-cert</td>
+            <td>2026</td>
+            <td><span class="status-badge status-done">COMPLETE</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- EXPERIENCE -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">experience.log</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Experience</div>
+
+      <div class="exp-item">
+        <div class="exp-header">
+          <div>
+            <span class="exp-title">DevOps Engineer</span>
+            <span class="exp-company"> &nbsp;// Bank of America, N.A. — New York, NY</span>
+          </div>
+          <span class="exp-date">Feb 2023 – Present</span>
+        </div>
+        <ul class="exp-bullets">
+          <li>Led migration of 15+ enterprise Java applications from VMs to OpenShift, improving scalability and reducing deployment time by standardizing container-based workflows</li>
+          <li>Built and enhanced an internal secrets management platform integrating HashiCorp Vault and Redis with a Python/HTMX UI featuring SSO and entitlement-based access controls</li>
+          <li>Designed and implemented CI/CD pipelines using Jenkins, Bitbucket, Ansible, and OpenShift, reducing manual onboarding effort across 15+ application teams</li>
+          <li>Developed observability solutions using Dynatrace dashboards, synthetic monitors, and Splunk log analysis, improving incident detection and reducing MTTR</li>
+          <li>Automated operational workflows using Python and Bash scripting, reducing manual effort across production environments</li>
+          <li>Managed Kubernetes/OpenShift resources including YAML configs, ConfigMaps, Secrets, and container registries for consistent, secure deployments</li>
+          <li>Resolved production incidents with cross-functional teams, ensuring high availability across critical banking infrastructure</li>
+        </ul>
+      </div>
+
+      <div class="exp-item">
+        <div class="exp-header">
+          <div>
+            <span class="exp-title">Software Development Student</span>
+            <span class="exp-company"> &nbsp;// Year Up New York — New York, NY</span>
+          </div>
+          <span class="exp-date">Sep 2022 – Feb 2023</span>
+        </div>
+        <ul class="exp-bullets">
+          <li>Completed an intensive program combining 200+ hours of software development training with a six-month corporate internship at Bank of America, leading to a full-time DevOps role</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROJECTS -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">projects/</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Projects</div>
+
+      <div class="project-card">
+        <div class="project-name">DevSecOps CI/CD Pipeline – Netflix Clone on AWS</div>
+        <div class="project-stack">AWS EC2 · Docker · Jenkins · SonarQube · Trivy · OWASP · Prometheus · Grafana · EKS · ArgoCD · Helm</div>
+        <ul class="project-bullets">
+          <li>Provisioned AWS EC2 and containerized a React/TypeScript app; configured Elastic IP and security groups for stable public access</li>
+          <li>Built a multi-stage Jenkins pipeline with SonarQube (code quality), OWASP Dependency-Check, and Trivy (image scanning)</li>
+          <li>Automated Docker builds with injected API secrets; pushed to DockerHub with SMTP alerts on pipeline events</li>
+          <li>Deployed Prometheus and Grafana monitoring for EC2 and Jenkins health metrics</li>
+          <li>Deployed to AWS EKS via ArgoCD (GitOps); extended Prometheus scrape configs for Kubernetes node metrics via Helm</li>
+        </ul>
+      </div>
+
+      <div class="project-card">
+        <div class="project-name">Terraform S3 Static Website Portfolio</div>
+        <div class="project-stack">Terraform · AWS S3 · IaC · Static Hosting</div>
+        <ul class="project-bullets">
+          <li>Provisioned a fully configured public S3 static website using Terraform — bucket, ownership controls, ACLs, public access block, and website config</li>
+          <li>Uploaded HTML files as S3 objects with content types and public-read permissions entirely via infrastructure as code</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDUCATION -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">education.txt</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Education</div>
+      <div class="edu-item">
+        <div class="edu-school">Baruch College — New York, NY</div>
+        <div class="edu-degree">BBA in Computer Information Systems</div>
+        <div class="edu-date">Sep 2022 – Present</div>
+        <div class="edu-note">Cloud Computing · System Design · Web &amp; Computer Programming · Database Systems · Telecom Networks</div>
+      </div>
+      <div class="edu-item">
+        <div class="edu-school">Year Up New York — New York, NY</div>
+        <div class="edu-degree">Software Development Program</div>
+        <div class="edu-date">Sep 2022 – Feb 2023</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CERTS -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">certs.log</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Certifications &amp; Training</div>
+      <ul class="cert-list">
+        <li>IBM SkillsBuild — Cloud Computing Fundamentals <span class="cert-year">2026</span></li>
+        <li>CodePath — Cybersecurity (Blue Team, Threat Detection, SIEM) <span class="cert-year">2024</span></li>
+        <li>CodePath — Web Development (Full-Stack Fundamentals) <span class="cert-year">2023</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- CONTACT -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="bar-title">contact.sh</span>
+    </div>
+    <div class="terminal-body">
+      <div class="section-label">Contact</div>
+      <ul class="contact-list">
+        <li>Email &nbsp;&nbsp;&nbsp;<a href="mailto:jt4u30@gmail.com">jt4u30@gmail.com</a></li>
+        <li>Phone &nbsp;&nbsp;&nbsp;<span style="color:var(--text)">347-593-5145</span></li>
+        <li>LinkedIn &nbsp;<a href="https://linkedin.com/in/jatintalwar" target="_blank">linkedin.com/in/jatintalwar</a></li>
+        <li>GitHub &nbsp;&nbsp;<a href="https://github.com/jatintalwar" target="_blank">github.com/jatintalwar</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="terminal-hint">▲ interactive terminal below &nbsp;|&nbsp; click the bar or press <kbd>`</kbd> to open &nbsp;|&nbsp; type <kbd>help</kbd> to get started</div>
+  <div class="footer">[ SYSTEM ONLINE // NEW YORK, NY // JATIN TALWAR ]</div>
+
+</div>
+
+<!-- Interactive Terminal Drawer -->
+<div id="term-drawer">
+  <button id="term-toggle">
+    <span class="arrow">▲</span>
+    <span style="color:#00ff41">jatin@portfolio</span><span style="color:#00ff4166">:~$</span>
+    <span style="color:#00ff4155;margin-left:4px">type 'help' for available commands</span>
+  </button>
+  <div id="term-output"></div>
+  <div id="term-input-row">
+    <span id="term-ps"><span>jatin</span>@portfolio:~$</span>
+    <input id="term-input" type="text" autocomplete="off" autocorrect="off" spellcheck="false" />
+  </div>
+</div>
+
+<script>
+// ── Matrix rain ──────────────────────────────────────────────
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+const CHARS = 'アイウエオカキクケコサシスセソタチツテトABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*';
+const FS = 14;
+let drops = [];
+function initDrops() { drops = Array(Math.floor(canvas.width / FS)).fill(0).map(() => Math.random() * -50); }
+initDrops();
+window.addEventListener('resize', initDrops);
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0,0,0,0.05)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = FS + 'px monospace';
+  const cols = Math.floor(canvas.width / FS);
+  for (let i = 0; i < cols; i++) {
+    const ch = CHARS[Math.floor(Math.random() * CHARS.length)];
+    ctx.fillStyle = drops[i] * FS < canvas.height * 0.12 ? '#ccffdd' : '#00ff41';
+    ctx.fillText(ch, i * FS, drops[i] * FS);
+    if (drops[i] * FS > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  }
+}
+setInterval(drawMatrix, 40);
+
+// ── Boot sequence ──────────────────────────────────────────────
+const bootLines = [
+  { text: 'BIOS v2.6.1  Copyright (C) Jatin Talwar Systems', cls: 'info' },
+  { text: '', cls: 'info' },
+  { text: '[  OK  ] Loading kernel modules...', cls: 'ok' },
+  { text: '[  OK  ] Mounting filesystems...', cls: 'ok' },
+  { text: '[  OK  ] Starting network interfaces...', cls: 'ok' },
+  { text: '[  OK  ] Initializing HashiCorp Vault connector...', cls: 'ok' },
+  { text: '[ WARN ] CKA certification — in progress', cls: 'warn' },
+  { text: '[  OK  ] Loading CI/CD pipeline configs...', cls: 'ok' },
+  { text: '[  OK  ] Mounting portfolio data...', cls: 'ok' },
+  { text: '[  OK  ] Starting Jatin Talwar — DevOps Engineer', cls: 'ok' },
+  { text: '', cls: 'info' },
+  { text: 'System ready. Welcome.', cls: 'ok' },
+];
+
+const bootEl  = document.getElementById('boot');
+const bootLog = document.getElementById('boot-log');
+
+async function runBoot() {
+  for (const line of bootLines) {
+    const el = document.createElement('div');
+    el.className = line.cls;
+    el.textContent = line.text;
+    bootLog.appendChild(el);
+    await new Promise(r => setTimeout(r, 90));
+  }
+  await new Promise(r => setTimeout(r, 500));
+  bootEl.classList.add('fade-out');
+  setTimeout(() => bootEl.remove(), 700);
+}
+runBoot();
+
+// ── Scroll animations ─────────────────────────────────────────
+const cards = document.querySelectorAll('.terminal');
+
+const cardObserver = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); cardObserver.unobserve(e.target); } });
+}, { threshold: 0.08 });
+
+cards.forEach(c => cardObserver.observe(c));
+
+
+// ── Interactive terminal ──────────────────────────────────────
+const drawer  = document.getElementById('term-drawer');
+const toggle  = document.getElementById('term-toggle');
+const output  = document.getElementById('term-output');
+const input   = document.getElementById('term-input');
+
+let history = [], histIdx = -1;
+
+toggle.addEventListener('click', () => {
+  drawer.classList.toggle('open');
+  if (drawer.classList.contains('open')) {
+    input.focus();
+    if (output.children.length === 0) printWelcome();
+  }
+});
+
+// Backtick shortcut
+document.addEventListener('keydown', e => {
+  if (e.key === '`') { e.preventDefault(); drawer.classList.toggle('open'); if (drawer.classList.contains('open')) { input.focus(); if (output.children.length === 0) printWelcome(); } }
+});
+
+function printWelcome() {
+  print('Portfolio Terminal v1.0.0 — Jatin Talwar', 't-green');
+  print('Type "help" to see available commands.', 't-dim');
+  print('', '');
+}
+
+function print(text, cls = 't-out-line') {
+  const el = document.createElement('div');
+  el.className = 't-out-line ' + cls;
+  el.textContent = text;
+  output.appendChild(el);
+  output.scrollTop = output.scrollHeight;
+}
+
+function printHTML(html) {
+  const el = document.createElement('div');
+  el.className = 't-out-line';
+  el.innerHTML = html;
+  output.appendChild(el);
+  output.scrollTop = output.scrollHeight;
+}
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const cmd = input.value.trim();
+    if (cmd) { history.unshift(cmd); histIdx = -1; }
+    print('jatin@portfolio:~$ ' + cmd, 'cmd-echo');
+    input.value = '';
+    runCommand(cmd.toLowerCase());
+  }
+  if (e.key === 'ArrowUp')   { histIdx = Math.min(histIdx + 1, history.length - 1); input.value = history[histIdx] || ''; }
+  if (e.key === 'ArrowDown') { histIdx = Math.max(histIdx - 1, -1); input.value = histIdx >= 0 ? history[histIdx] : ''; }
+});
+
+const COMMANDS = {
+  help() {
+    print('', '');
+    print('Available commands:', 't-green');
+    const cmds = [
+      ['whoami',      'Display name and title'],
+      ['about',       'About Jatin'],
+      ['skills',      'List all skills'],
+      ['experience',  'Work experience'],
+      ['projects',    'View projects'],
+      ['education',   'Education background'],
+      ['certs',       'Certifications'],
+      ['contact',     'Contact information'],
+      ['ps',          'Show running processes'],
+      ['uptime',      'Time since joining Bank of America'],
+      ['clear',       'Clear terminal output'],
+      ['sudo hire-me','...'],
+    ];
+    cmds.forEach(([c, d]) => printHTML(`  <span style="color:#00ff41;display:inline-block;width:130px">${c}</span><span style="color:#aaffcc">${d}</span>`));
+    print('', '');
+  },
+  whoami() {
+    print('', '');
+    print('  Jatin Talwar', 't-green');
+    print('  DevOps Engineer @ Bank of America', '');
+    print('  New York, NY', 't-dim');
+    print('', '');
+  },
+  about() {
+    print('', '');
+    print('  DevOps Engineer with 3+ years at Bank of America.', '');
+    print('  Expert in CI/CD, Kubernetes, OpenShift, HashiCorp Vault,', '');
+    print('  AWS, and observability. BBA-CIS student at Baruch College.', '');
+    print('  Passionate about automation, security, and clean infrastructure.', '');
+    print('', '');
+  },
+  skills() {
+    print('', '');
+    print('  CI/CD & Automation:', 't-green');
+    print('    Jenkins · Bitbucket · ArgoCD · Ansible · Git · XL Release', '');
+    print('  Containers & Cloud:', 't-green');
+    print('    Docker · Kubernetes · OpenShift · AWS (EC2, EKS) · Helm · Terraform', '');
+    print('  Security & Monitoring:', 't-green');
+    print('    HashiCorp Vault · SonarQube · Trivy · OWASP · Prometheus · Grafana · Splunk · Dynatrace', '');
+    print('  Languages:', 't-green');
+    print('    Python · Bash · SQL · YAML · MySQL · MongoDB', '');
+    print('', '');
+  },
+  experience() {
+    print('', '');
+    print('  Bank of America, N.A. — DevOps Engineer', 't-green');
+    print('  Feb 2023 – Present | New York, NY', 't-dim');
+    print('  › Migrated 15+ Java apps from VMs to OpenShift', '');
+    print('  › Built HashiCorp Vault secrets management platform', '');
+    print('  › Designed Jenkins/Bitbucket/Ansible/OpenShift CI/CD pipelines', '');
+    print('  › Observability via Dynatrace, Splunk, Prometheus, Grafana', '');
+    print('', '');
+    print('  Year Up New York — Software Development Student', 't-green');
+    print('  Sep 2022 – Feb 2023', 't-dim');
+    print('  › 200+ hrs training → BofA internship → full-time DevOps role', '');
+    print('', '');
+  },
+  projects() {
+    print('', '');
+    print('  [1] DevSecOps CI/CD Pipeline – Netflix Clone on AWS', 't-green');
+    print('      AWS EC2 · Docker · Jenkins · SonarQube · Trivy · EKS · ArgoCD · Helm', 't-dim');
+    print('      Multi-stage pipeline with security scanning, GitOps deploy,', '');
+    print('      and full Prometheus/Grafana monitoring stack.', '');
+    print('', '');
+    print('  [2] Terraform S3 Static Website Portfolio', 't-green');
+    print('      Terraform · AWS S3 · IaC', 't-dim');
+    print('      This portfolio — fully provisioned via Terraform.', '');
+    print('', '');
+  },
+  education() {
+    print('', '');
+    print('  Baruch College — BBA in Computer Information Systems', 't-green');
+    print('  Sep 2022 – Present | New York, NY', 't-dim');
+    print('  Coursework: Cloud Computing, System Design, Database Systems', '');
+    print('', '');
+    print('  Year Up New York — Software Development', 't-green');
+    print('  Sep 2022 – Feb 2023', 't-dim');
+    print('', '');
+  },
+  certs() {
+    print('', '');
+    print('  ✓ IBM SkillsBuild — Cloud Computing Fundamentals (2026)', '');
+    print('  ✓ CodePath — Cybersecurity: Blue Team, Threat Detection, SIEM (2024)', '');
+    print('  ✓ CodePath — Web Development: Full-Stack Fundamentals (2023)', '');
+    print('', '');
+  },
+  contact() {
+    print('', '');
+    print('  Email    jt4u30@gmail.com', '');
+    print('  Phone    347-593-5145', '');
+    print('  LinkedIn linkedin.com/in/jatintalwar', '');
+    print('  GitHub   github.com/jatintalwar', '');
+    print('', '');
+  },
+  ps() {
+    print('', '');
+    printHTML('<span style="color:#00ff4166">  PID  USER    COMMAND                              STATUS</span>');
+    printHTML('  001  jatin   <span style="color:#00ff41">devops-engineer @ bank-of-america</span>    <span style="color:#00ff41">RUNNING</span>');
+    printHTML('  002  jatin   <span style="color:#00ff41">bba-cis @ baruch-college</span>             <span style="color:#00ff41">RUNNING</span>');
+    printHTML('  003  jatin   <span style="color:#00ff41">cka-certification --prep</span>              <span style="color:#febc2e">IN PROGRESS</span>');
+    printHTML('  004  jatin   <span style="color:#00ff41">terraform-s3-portfolio</span>               <span style="color:#00ff4166">COMPLETE</span>');
+    printHTML('  005  jatin   <span style="color:#00ff41">ibm-cloud-computing-cert</span>             <span style="color:#00ff4166">COMPLETE</span>');
+    print('', '');
+  },
+  uptime() {
+    const start = new Date('2023-02-01');
+    const now   = new Date();
+    const days  = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    const yrs   = Math.floor(days / 365);
+    const rem   = days % 365;
+    print('', '');
+    print(`  uptime: ${days} days (${yrs} year${yrs !== 1 ? 's' : ''}, ${rem} days)`, 't-green');
+    print('  since:  Bank of America — Feb 2023', 't-dim');
+    print('', '');
+  },
+  clear() { output.innerHTML = ''; },
+  'sudo hire-me'() {
+    print('', '');
+    print('  [sudo] password for jatin: ************', 't-dim');
+    print('', '');
+    print('  Executing hire-me.sh...', 't-green');
+    print('  ✓ Resume loaded successfully', '');
+    print('  ✓ Skills verified: DevOps, Cloud, CI/CD, Security', '');
+    print('  ✓ 3+ years experience confirmed', '');
+    print('  ✓ References available on request', '');
+    print('', '');
+    print('  Process complete. Offer letter incoming? 👀', 't-green');
+    print('  → jt4u30@gmail.com', '');
+    print('', '');
+  },
+};
+
+function runCommand(cmd) {
+  if (!cmd) return;
+  const handler = COMMANDS[cmd];
+  if (handler) {
+    handler();
+  } else {
+    print(`  command not found: ${cmd} — try 'help'`, 't-err');
+  }
+}
+</script>
+</body>
+</html>

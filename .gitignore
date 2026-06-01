@@ -1,0 +1,13 @@
+# Terraform state files — contain sensitive infrastructure details, never commit these
+terraform.tfstate
+terraform.tfstate.backup
+
+# Terraform working directory — contains downloaded provider binaries (large files)
+.terraform/
+
+# Variable files that may contain secrets
+*.tfvars
+*.tfvars.json
+
+# macOS
+.DS_Store
