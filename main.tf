@@ -88,6 +88,11 @@ resource "aws_s3_object" "index" {
   acl          = "public-read"
   content_type = "text/html"
   etag         = filemd5("index.html")  # detects file content changes so Terraform re-uploads when the file is edited
+
+  depends_on = [
+    aws_s3_bucket_ownership_controls.mybucket,
+    aws_s3_bucket_public_access_block.mybucket
+  ]
 }
 
 
@@ -100,4 +105,9 @@ resource "aws_s3_object" "error" {
   acl          = "public-read"
   content_type = "text/html"
   etag         = filemd5("error.html")  # detects file content changes so Terraform re-uploads when the file is edited
+
+  depends_on = [
+    aws_s3_bucket_ownership_controls.mybucket,
+    aws_s3_bucket_public_access_block.mybucket
+  ]
 }
