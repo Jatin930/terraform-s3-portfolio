@@ -76,11 +76,11 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
 # LockID is the key name Terraform expects — don't change it.
 resource "aws_dynamodb_table" "terraform_state_lock" {
   name         = "myterraformproject-jt-tflock"
-  billing_mode = "PAY_PER_REQUEST"  # no upfront cost — only pay when Terraform reads/writes
+  billing_mode = "PAY_PER_REQUEST" # no upfront cost — only pay when Terraform reads/writes
   hash_key     = "LockID"
 
   attribute {
     name = "LockID"
-    type = "S"  # S = String type
+    type = "S" # S = String type
   }
 }

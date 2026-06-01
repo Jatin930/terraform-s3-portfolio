@@ -48,10 +48,10 @@ resource "aws_s3_bucket_ownership_controls" "mybucket" {
 resource "aws_s3_bucket_public_access_block" "mybucket" {
   bucket = aws_s3_bucket.mybucket.id
 
-  block_public_acls       = true  # block any attempt to make objects public via ACL
-  block_public_policy     = true  # block any public bucket policies
-  ignore_public_acls      = true  # ignore any existing public ACLs
-  restrict_public_buckets = true  # restrict all public access to the bucket
+  block_public_acls       = true # block any attempt to make objects public via ACL
+  block_public_policy     = true # block any public bucket policies
+  ignore_public_acls      = true # ignore any existing public ACLs
+  restrict_public_buckets = true # restrict all public access to the bucket
 
   depends_on = [aws_s3_bucket_ownership_controls.mybucket]
 }
@@ -108,7 +108,7 @@ resource "aws_cloudfront_origin_access_control" "oac" {
   name                              = "${var.bucket_name}-oac"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"  # AWS Signature Version 4 — the current standard
+  signing_protocol                  = "sigv4" # AWS Signature Version 4 — the current standard
 }
 
 
@@ -135,10 +135,10 @@ resource "aws_s3_bucket_policy" "allow_cloudfront" {
         Sid    = "AllowCloudFrontServicePrincipal"
         Effect = "Allow"
         Principal = {
-          Service = "cloudfront.amazonaws.com"  # the CloudFront service identity
+          Service = "cloudfront.amazonaws.com" # the CloudFront service identity
         }
-        Action   = "s3:GetObject"                              # read-only access
-        Resource = "${aws_s3_bucket.mybucket.arn}/*"           # all objects in our bucket
+        Action   = "s3:GetObject"                    # read-only access
+        Resource = "${aws_s3_bucket.mybucket.arn}/*" # all objects in our bucket
         Condition = {
           StringEquals = {
             # only allow requests from OUR specific CloudFront distribution
@@ -180,7 +180,7 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
     strict_transport_security {
       access_control_max_age_sec = 31536000
       include_subdomains         = true
-      override                   = true  # override means apply even if origin already sets this header
+      override                   = true # override means apply even if origin already sets this header
     }
 
     # Block MIME-type sniffing
@@ -196,7 +196,7 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
 
     # Enable browser XSS filter
     xss_protection {
-      mode_block = true  # block the page entirely if XSS is detected
+      mode_block = true # block the page entirely if XSS is detected
       protection = true
       override   = true
     }
@@ -225,23 +225,23 @@ resource "aws_cloudfront_distribution" "cdn" {
   origin {
     domain_name              = aws_s3_bucket.mybucket.bucket_regional_domain_name
     origin_id                = "S3-${aws_s3_bucket.mybucket.id}"
-    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id  # attach OAC
+    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id # attach OAC
   }
 
   enabled             = true
-  default_root_object = "index.html"  # serve index.html when someone visits /
+  default_root_object = "index.html" # serve index.html when someone visits /
 
   # default_cache_behavior defines how CloudFront handles and caches requests.
   default_cache_behavior {
     allowed_methods            = ["GET", "HEAD"]
     cached_methods             = ["GET", "HEAD"]
     target_origin_id           = "S3-${aws_s3_bucket.mybucket.id}"
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id  # attach security headers
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id # attach security headers
 
     forwarded_values {
-      query_string = false  # don't pass query strings to S3 (not needed for static sites)
+      query_string = false # don't pass query strings to S3 (not needed for static sites)
       cookies {
-        forward = "none"   # don't forward cookies (not needed for static sites)
+        forward = "none" # don't forward cookies (not needed for static sites)
       }
     }
 
@@ -249,9 +249,9 @@ resource "aws_cloudfront_distribution" "cdn" {
     viewer_protocol_policy = "redirect-to-https"
 
     # TTL = how long CloudFront caches files before checking S3 for updates
-    min_ttl     = 0      # minimum cache time
-    default_ttl = 3600   # default: 1 hour
-    max_ttl     = 86400  # maximum: 24 hours
+    min_ttl     = 0     # minimum cache time
+    default_ttl = 3600  # default: 1 hour
+    max_ttl     = 86400 # maximum: 24 hours
   }
 
   # When S3 denies a request (403) because the file doesn't exist,
